@@ -1,34 +1,74 @@
 # src/models/enums.py
-# порядок метрик строго по ТЗ пп.1-6, не менять
+#
+# Перечисления (константы) для всего проекта.
+# Использование Enum вместо строк защищает от опечаток:
+# вместо "loss_share" везде пишем MetricType.LOSS_SHARE.value
+# и Python сразу скажет если написали неправильно.
 
 from enum import Enum
 
 
 class MetricType(str, Enum):
+    """
+    6 метрик Орикс в порядке строго по Т1 пп.1-6.
+    Порядок важен для правильного выбора калькулятора и генерации текста.
+
+    Наследование от str позволяет сравнивать напрямую со строками:
+    MetricType.LOSS_SHARE == "loss_share"  # True
+    """
+
+    # п.1 Т1: место Моего банка в цепочке банков по доле потерь к BI
     LOSS_SHARE             = "loss_share"
+
+    # п.2 Т1: как менялся объём прямых (валовых) потерь по кварталам
     DIRECT_LOSSES_DYNAMICS = "direct_losses_dynamics"
+
+    # п.3 Т1: как менялся объём чистых потерь (после возмещений) по кварталам
     NET_LOSSES_DYNAMICS    = "net_losses_dynamics"
+
+    # п.4 Т1: какая доля прямых потерь была возмещена
     RECOVERY_LEVEL         = "recovery_level"
+
+    # п.5 Т1: в каких источниках риска и типах событий концентрируются потери
     CONCENTRATION          = "concentration"
+
+    # п.6 Т1: какие пороговые значения КПУР нарушены и как долго
     KPUR_VIOLATION         = "kpur_violation"
 
 
 class DeviationThreshold(str, Enum):
-    # пороги взяты из Golden Set Орикс
-    INSIGNIFICANT = "незначительное"  # < 10%
-    MODERATE      = "среднее"         # 10–30%
-    SIGNIFICANT   = "существенное"    # > 30%
+    """
+    Три уровня отклонения банка от среднего по кластеру.
+    Пороги взяты из реальных эталонов PDF Golden Set Орикс.
+    Используется в: metric1_loss_share.py → _classify()
+    """
+
+    INSIGNIFICANT = "незначительное"  # отклонение < 10%: банк близок к рынку
+    MODERATE      = "среднее"         # отклонение 10–30%: стоит изучить
+    SIGNIFICANT   = "существенное"    # отклонение > 30%: требует анализа
 
 
 class DeviationDirection(str, Enum):
-    BELOW = "ниже"
-    ABOVE = "выше"
-    EQUAL = "соответствует"
+    """
+    Направление отклонения Моего банка от среднего.
+    Хранится в поле extra объекта MetricCalculations.
+    Используется при построении текста вывода.
+    """
+
+    BELOW = "ниже"          # мой банк лучше рынка (меньше потерь)
+    ABOVE = "выше"          # мой банк хуже рынка (больше потерь)
+    EQUAL = "соответствует" # мой банк совпадает со средним
 
 
 class Scenario(str, Enum):
-    # используется для маркировки примеров в Golden Set
-    NORMAL       = "normal"
-    BELOW_AVERAGE = "below_average"
-    ABOVE_AVERAGE = "above_average"
-    CRITICAL     = "critical"
+    """
+    Тип сценария для маркировки примеров в Golden Set.
+    Каждый JSON-файл в golden_set/data/ содержит примеры с этими метками.
+    В Sprint 3 GoldenSetManager использует сценарий для выбора
+    наиболее подходящих few-shot примеров для промпта.
+    """
+
+    NORMAL        = "normal"        # банк близок к среднему — нейтральный вывод
+    BELOW_AVERAGE = "below_average" # банк лучше рынка — позитивный вывод
+    ABOVE_AVERAGE = "above_average" # банк хуже рынка — предупреждающий вывод
+    CRITICAL      = "critical"      # критическое отклонение — тревожный вывод
