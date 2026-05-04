@@ -1,29 +1,11 @@
-# src/core/nlg/prompt_builder.py
-#
-# Промпт обновлён по требованиям куратора Орикс:
-# - эталон только как стиль, не источник фактов
-# - все цифры только из расчётов
-# - «Характеристика отклонения» дословно один раз
-# - «Уровень отклонения по отраслевым порогам» дословно
-# - запрет английского
-# - запрет неподтверждённых причин и предположений
-# - 5 критериев качества (точные формулировки куратора)
-# - один связный абзац с логическими переходами
-# - ОБЯЗАТЕЛЬНОЕ упоминание медианы, выбросов и скорректированного среднего
-#   когда они присутствуют в данных
-
 from src.models.output_models import MetricCalculations
 
 
-ZONE_THRESHOLDS = {
-    "соответствует норме":                   0.5,
-    "приближается к пороговому уровню":      0.8,
-    "превышает пороговый уровень":           0.96,
-    "критически превышает допустимый порог": 999.0,
-}
-
+#  System instructions для каждой метрики
 
 DOMAIN_INSTRUCTIONS = {
+
+    # Метрика 1: Доля потерь в бизнес-индикаторе
     "loss_share": (
         "Вы — эксперт по операционным рискам в банке. "
         "На основе входных математических данных сформируйте аналитический вывод "
@@ -105,12 +87,64 @@ DOMAIN_INSTRUCTIONS = {
         "нет жаргона, белого шума и иностранных слов.\n"
         "5. Деловой стиль — корректные деловые формулировки, связное рассуждение, "
         "не перечисление фактов по пунктам."
-    )
+    ),
+
+    # Метрика 2: Динамика прямых потерь (временной ряд)
+    "direct_losses_dynamics": (
+        "Вы — эксперт по операционным рискам в банке. "
+        "На основе входных математических данных сформируйте аналитический вывод "
+        "о динамике прямых потерь банка в сравнении со средними потерями других банков.\n\n"
+
+        "Роль эталонного примера: если эталон предоставлен, используйте его исключительно "
+        "как образец стиля и структуры предложений — не как источник цифр или выводов. "
+        "Все значения должны браться только из раздела ВХОДНЫЕ ДАННЫЕ.\n\n"
+
+        "СТРОГО ЗАПРЕЩЕНО использовать в тексте любые слова и аббревиатуры "
+        "на английском языке. Квартал пишите как «Q3 2025», не «2025Q3».\n"
+        "СТРОГО ЗАПРЕЩЕНО придумывать числа, не указанные в разделе ВХОДНЫЕ ДАННЫЕ.\n\n"
+
+        "СТИЛЬ: два связных абзаца — первый про тренды, второй про соотношения. "
+        "Между предложениями — логические переходы "
+        "(«так», «при этом», «в то время как», «вместе с тем»).\n\n"
+
+        "ОБЯЗАТЕЛЬНАЯ СТРУКТУРА (два абзаца):\n\n"
+
+        "АБЗАЦ 1 — Тренды за последние три квартала:\n"
+        "Начните с общей характеристики расхождения трендов, используя поле "
+        "«Характеристика расхождения» дословно в одном из двух форматов:\n"
+        "  - «Динамика потерь вашего банка и других банков [характеристика расхождения].»\n"
+        "  - «Динамика потерь вашего банка [характеристика расхождения] от тренда "
+        "по другим банкам.»\n"
+        "Затем раскройте: какой тренд у банка за последние три квартала (поле "
+        "«Тренд банка») и какой у рынка (поле «Тренд рынка»). "
+        "Если есть аномальный квартал — назовите его. "
+        "Завершите рекомендацией проанализировать структуру источников потерь.\n\n"
+
+        "АБЗАЦ 2 — Соотношения и масштаб:\n"
+        "Первое предложение: «Суммарно за последние четыре квартала потери по вашему банку "
+        "в [last_4q_factor] раза [больше/меньше], чем потери в других банках.» "
+        "Второе предложение: «При этом за последний квартал — [last_quarter_label] — "
+        "потери в вашем банке в [last_q_factor] раза [больше/меньше].» "
+        "ЕСЛИ банк стабильно выше или ниже рынка на протяжении всего периода — "
+        "добавьте: «Постоянное стабильное превышение [ваших потерь над усредненными / "
+        "усредненных потерь над потерями вашего банка] может говорить о различиях "
+        "в размерных классах банка и объектов сравнения.»\n\n"
+
+        "Критерии качества:\n"
+        "1. Полнота — тренд банка, тренд рынка, соотношения за 4 квартала и за "
+        "последний квартал, рекомендация.\n"
+        "2. Точность цифр — все числа строго из входных данных.\n"
+        "3. Логика — описание тренда не противоречит направлению данных.\n"
+        "4. Понятность — нет жаргона и иностранных слов.\n"
+        "5. Деловой стиль — два связных абзаца, не перечисление фактов."
+    ),
 }
 
 
-# Базовый шаблон данных
-DATA_TEMPLATE_BASE = """\
+# Шаблоны входных данных 
+
+# Шаблон для Метрики 1 (рейтинг банков)
+DATA_TEMPLATE_LOSS_SHARE = """\
 ВХОДНЫЕ ДАННЫЕ (использовать только эти цифры, не брать числа из эталона):
 - Значение вашего банка: {bank_value_fmt} %
 - Среднее значение по выборке: {avg_value_fmt} %
@@ -124,18 +158,43 @@ DATA_TEMPLATE_BASE = """\
 - Направление: {direction} среднего\
 """
 
-# Дополнительный блок про выбросы (добавляется только если они есть)
+# Дополнительный блок про выбросы для Метрики 1
 OUTLIER_BLOCK = """\
 - Обнаружен выброс в выборке: банк «{outlier_label}» со значением {outlier_value_fmt} %
 - Скорректированное среднее (без учёта выброса): {adjusted_avg_fmt} %
-- Эту информацию обязательно упомяните в выводе."""
+- Эту информацию обязательно упомяните в выводе.\
+"""
 
-NEGATIVE_EXAMPLE = """\
+# Шаблон для Метрики 2 (временной ряд)
+DATA_TEMPLATE_DYNAMICS = """\
+ВХОДНЫЕ ДАННЫЕ (использовать только эти цифры, не брать числа из эталона):
+- Период анализа: с {first_quarter} по {last_quarter} ({total_quarters} кварталов)
+- Тренд банка за последние 3 квартала: {bank_trend}
+- Тренд рынка (других банков) за последние 3 квартала: {market_trend}
+- Характеристика расхождения (вставить дословно в открывающем предложении): {divergence_label}
+- Суммарно за последние 4 квартала: потери банка в {last_4q_factor} раза {last_4q_direction}, \
+чем у других банков
+- За последний квартал ({last_quarter_label}): потери банка в {last_q_factor} раза \
+{last_q_direction}, чем у других банков
+- Банк стабильно выше рынка всю историю наблюдений: {consistent_above}
+- Банк стабильно ниже рынка всю историю наблюдений: {consistent_below}\
+"""
+
+# Плохой пример для Метрики 1
+NEGATIVE_EXAMPLE_LOSS_SHARE = """\
 ПЛОХОЙ ПРИМЕР (не делать так):
 «Уровень потерь существенно ниже среднего. Разница составляет 67%. Это хорошо.»
 Почему плохо: нет конкретных значений банка и среднего, нет позиции, \
 нет уровня по отраслевым порогам с порогом, нет характеристики отклонения в скобках, \
 не упомянута медиана, нет логических переходов между фактами.\
+"""
+
+# Плохой пример для Метрики 2
+NEGATIVE_EXAMPLE_DYNAMICS = """\
+ПЛОХОЙ ПРИМЕР (не делать так):
+«Потери вашего банка растут. Это плохо. Средний показатель также изменяется.»
+Почему плохо: нет конкретных соотношений, нет характеристики расхождения, \
+не указаны конкретные кварталы, нет рекомендации, нет второго абзаца с соотношениями.\
 """
 
 
@@ -147,92 +206,118 @@ class PromptBuilder:
         calculations: MetricCalculations,
         positive_examples: list,
     ) -> tuple:
-        """Возвращает (system_instructions, user_content)."""
-
-        system = DOMAIN_INSTRUCTIONS.get(metric_type)
-        if not system:
+        # Роутинг по типу метрики
+        if metric_type == "loss_share":
+            return self._build_loss_share(calculations, positive_examples)
+        elif metric_type == "direct_losses_dynamics":
+            return self._build_dynamics(calculations, positive_examples)
+        else:
             raise ValueError(f"Domain prompt для метрики '{metric_type}' не найден")
 
-        bank_val = calculations.my_bank_value
-        avg_val  = calculations.cluster_avg_value
-        diff_val = calculations.difference_percent
+    # Метрика 1 
+
+    def _build_loss_share(
+        self, calculations: MetricCalculations, positive_examples: list
+    ) -> tuple:
+        system = DOMAIN_INSTRUCTIONS["loss_share"]
 
         deviation_level = calculations.extra.get("deviation_level", "")
-        threshold_value = self._get_threshold_value(deviation_level)
         magnitude_label = calculations.extra.get(
             "magnitude_label",
             "ниже среднего" if calculations.is_below_average else "выше среднего",
         )
-        direction = "ниже" if calculations.is_below_average else "выше"
 
-        # Новые поля
-        median_fmt = calculations.extra.get("median_value_fmt", "—")
-        my_bank_vs_median = calculations.extra.get("my_bank_vs_median", "—")
-
-        data_block = DATA_TEMPLATE_BASE.format(
-            bank_value_fmt=self._fmt(bank_val),
-            avg_value_fmt=self._fmt(avg_val),
-            diff_fmt=self._fmt(diff_val),
+        data_block = DATA_TEMPLATE_LOSS_SHARE.format(
+            bank_value_fmt=self._fmt(calculations.my_bank_value),
+            avg_value_fmt=self._fmt(calculations.cluster_avg_value),
+            diff_fmt=self._fmt(calculations.difference_percent),
             magnitude_label=magnitude_label,
-            median_value_fmt=median_fmt,
-            my_bank_vs_median=my_bank_vs_median,
+            median_value_fmt=calculations.extra.get("median_value_fmt", "—"),
+            my_bank_vs_median=calculations.extra.get("my_bank_vs_median", "—"),
             position=calculations.position or "—",
             total_banks=calculations.total_banks or "—",
             deviation_level=deviation_level,
-            threshold_value=self._fmt(threshold_value),
-            direction=direction,
+            threshold_value=self._fmt(self._threshold_from_level(deviation_level)),
+            direction="ниже" if calculations.is_below_average else "выше",
         )
 
-        # Условный блок про выбросы
         if calculations.extra.get("has_outliers"):
-            outlier_block = OUTLIER_BLOCK.format(
+            data_block += "\n" + OUTLIER_BLOCK.format(
                 outlier_label=calculations.extra.get("outlier_label", "—"),
                 outlier_value_fmt=calculations.extra.get("outlier_value_fmt", "—"),
                 adjusted_avg_fmt=calculations.extra.get("adjusted_avg_fmt", "—"),
             )
-            data_block = data_block + "\n" + outlier_block
-
-        style_block = self._format_style_example(positive_examples)
 
         user_parts = [data_block]
-        if style_block:
-            user_parts.append(style_block)
-        user_parts.append(NEGATIVE_EXAMPLE)
+        style = self._style_example(positive_examples)
+        if style:
+            user_parts.append(style)
+        user_parts.append(NEGATIVE_EXAMPLE_LOSS_SHARE)
         user_parts.append(
             "Сформируйте аналитический вывод строго по структуре и критериям выше. "
-            "Один связный абзац с логическими переходами. "
-            "Только факты из входных данных. "
+            "Один связный абзац. Только факты из входных данных. "
             "ВАЖНО: пункт 7 (заключительная интерпретация) обязателен — "
-            "вывод не должен заканчиваться на пункте 6. "
-            "Минимум три предложения интерпретации в конце."
+            "минимум три предложения интерпретации в конце."
         )
-
         return system, "\n\n".join(user_parts)
 
-    # ── Helpers ────────────────────────────────────────────────────────────
+    # Метрика 2 
+
+    def _build_dynamics(
+        self, calculations: MetricCalculations, positive_examples: list
+    ) -> tuple:
+        system = DOMAIN_INSTRUCTIONS["direct_losses_dynamics"]
+        ex = calculations.extra
+
+        data_block = DATA_TEMPLATE_DYNAMICS.format(
+            first_quarter=ex.get("first_quarter_serie", "—"),
+            last_quarter=ex.get("last_quarter_serie", "—"),
+            total_quarters=ex.get("total_quarters", "—"),
+            bank_trend=ex.get("bank_trend_3q", "—"),
+            market_trend=ex.get("market_trend_3q", "—"),
+            divergence_label=ex.get("divergence_label", "—"),
+            last_4q_factor=ex.get("last_4q_factor_fmt", "—"),
+            last_4q_direction=ex.get("last_4q_direction", "—"),
+            last_quarter_label=ex.get("last_quarter_label", "—"),
+            last_q_factor=ex.get("last_q_factor_fmt", "—"),
+            last_q_direction=ex.get("last_q_direction", "—"),
+            consistent_above="да" if ex.get("consistent_above_market") else "нет",
+            consistent_below="да" if ex.get("consistent_below_market") else "нет",
+        )
+
+        user_parts = [data_block]
+        style = self._style_example(positive_examples)
+        if style:
+            user_parts.append(style)
+        user_parts.append(NEGATIVE_EXAMPLE_DYNAMICS)
+        user_parts.append(
+            "Сформируйте аналитический вывод строго по структуре и критериям выше. "
+            "Два связных абзаца. Только факты из входных данных."
+        )
+        return system, "\n\n".join(user_parts)
+
+    # Helpers 
 
     @staticmethod
     def _fmt(val: float) -> str:
-        """Русский формат с двумя знаками после запятой: 0.269 → 0,27"""
+        # Русский формат с двумя знаками: 0.269 → 0,27
         return f"{val:.2f}".replace(".", ",")
 
     @staticmethod
-    def _get_threshold_value(deviation_level: str) -> float:
+    def _threshold_from_level(deviation_level: str) -> float:
         if "норме" in deviation_level:
             return 0.5
         elif "приближается" in deviation_level:
             return 0.8
         elif "превышает пороговый" in deviation_level:
             return 0.96
-        else:
-            return 0.96
+        return 0.96
 
     @staticmethod
-    def _format_style_example(examples: list) -> str:
+    def _style_example(examples: list) -> str:
         if not examples:
             return ""
-        ex = examples[0]
-        verdict = ex.get("verdict", "")
+        verdict = examples[0].get("verdict", "")
         if not verdict:
             return ""
         return (

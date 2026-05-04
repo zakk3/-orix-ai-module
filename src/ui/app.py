@@ -318,8 +318,15 @@ if not is_valid:
     st.stop()
 
 # Проверяем что выбранная метрика уже реализована
-if selected_type != MetricType.LOSS_SHARE.value:
-    st.warning("В текущей версии реализована только метрика «Чистые потери к бизнес-индикатору».")
+SUPPORTED_METRICS = {
+    MetricType.LOSS_SHARE.value,
+    MetricType.DIRECT_LOSSES_DYNAMICS.value,
+}
+if selected_type not in SUPPORTED_METRICS:
+    st.warning(
+        "В текущей версии реализованы метрики «Чистые потери к бизнес-индикатору» "
+        "и «Динамика чистых потерь за период»."
+    )
     st.stop()
 
 # Запуск pipeline: расчёты → LLM → валидация

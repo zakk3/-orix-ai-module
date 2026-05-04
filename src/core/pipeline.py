@@ -13,6 +13,7 @@ from src.models.enums import MetricType
 from src.core.validation.input_validator import InputValidator
 from src.core.validation.evaluator import Evaluator
 from src.core.deterministic.metric1_loss_share import Metric1Calculator
+from src.core.deterministic.metric2_direct_losses import Metric2Calculator
 from src.core.nlg.generator import NLGGenerator
 
 
@@ -23,6 +24,7 @@ class AnalysisPipeline:
         # добавляем новые метрики сюда по мере реализации
         self.calculators = {
             MetricType.LOSS_SHARE.value: Metric1Calculator(),
+            MetricType.DIRECT_LOSSES_DYNAMICS.value: Metric2Calculator(),
         }
         self.generator = NLGGenerator()
         self.evaluator = Evaluator()
