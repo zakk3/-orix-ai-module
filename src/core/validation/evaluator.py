@@ -30,8 +30,9 @@ ALWAYS_ALLOWED = {
 # (LLM может взять их из контекста — они не должны считаться галлюцинациями)
 DATE_PATTERNS = [
     r'\b20[2-3]\d\b',                          # 2022, 2023, 2024
+    r'\b20[2-3]\d\s*Q[1-4]\b',                 # 2024Q3, 2023 Q1
     r'\b[1-4]\s*-?[оыйемя]*\s*кв[а-яё.-]*',   # 1-й квартал, 2 кв.
-    r'\bQ[1-4]\b',                              # Q1, Q2
+    r'\bQ[1-4]\b',                              # Q1, Q2 (изолированно)
     r'\b[2-3]\d\s*г[а-яех.]*',                 # 23 года, 24 г.
     r'\bв\s+\d+(?:[.,]\d+)?\s+раз[а]?\b',      # в 3 раза, в 1,5 раза, в 10 раз
     r'\bна\s+100\s*%\b',                        # на 100%
@@ -47,6 +48,34 @@ EXTREME_WORDS_PATTERN = re.compile(
     r'самом?\s+высок|самом?\s+низк|наивысш',
     re.IGNORECASE
 )
+
+# ── Семантические правила: запрещённые слова и конструкции ──────────────
+# Список из ai_orix Quality Gate — слова, делающие текст недостоверным.
+
+FORBIDDEN_PATTERNS = [
+    (r'\bсуществен\w*', 'существенно/существенный'),
+    (r'\bзначительн\w*', 'значительно/значительный'),
+    (r'\bсвидетельству\w*\b', 'свидетельствует'),
+    (r'\bможно сделать вывод\b', 'можно сделать вывод'),
+    (r'\bможно заключить\b', 'можно заключить'),
+    (r'\bможно отметить\b', 'можно отметить'),
+    (r'\bможно констатировать\b', 'можно констатировать'),
+    (r'\bскорее всего\b', 'скорее всего'),
+    (r'\bрэнкинг\w*\b', 'рэнкинг'),
+    (r'\bдостаточен\b', 'достаточно (оценка)'),
+    (r'\bнадёжн\w*\b', 'надёжно/надёжный'),
+    (r'\bпозволя\w*\b', 'позволяет (вывод)'),
+    (r'\bобоснованн\w*\b', 'обоснованно'),
+    (r'\bоснованн\w*\b', 'основан (предположение)'),
+    (r'\bследует отметить\b', 'следует отметить'),
+    (r'\bне исключено\b', 'не исключено'),
+    (r'\bпрофил[ьяею]\s+риск[ауе]', 'профиль риска'),
+    (r'\bэффективн\w*\s+управлени', 'эффективное управление'),
+    (r'\bнедостаточн\w*\s+управлени', 'недостаточное управление'),
+    (r'\bсдержанн\w*\s+профил', 'сдержанный профиль'),
+    (r'\bзрелост[ьи]\s+систем', 'зрелость системы'),
+    (r'\bкачеств\w*\s+риск-менеджмент', 'качество риск-менеджмента'),
+]
 
 
 class Evaluator:
@@ -82,6 +111,9 @@ class Evaluator:
         # 6. Упомянута ли позиция банка
         errors.extend(self._check_position_mentioned(verdict, calculations))
 
+        # 7. Семантическая проверка: запрещённые слова
+        errors.extend(self._check_semantic_rules(verdict))
+
         passed = len(errors) == 0
         score = max(0.0, 1.0 - 0.15 * len(errors))
         return passed, round(score, 2), errors
@@ -94,15 +126,17 @@ class Evaluator:
         errors = []
         text = verdict.lower()
         if calc.is_below_average:
-            # Текст говорит «выше» без упоминания «ниже»
-            if re.search(r'\bвыше\b', text) and not re.search(r'\bниже\b', text):
+            # Текст говорит «выше среднего/рынка» без упоминания «ниже»
+            if (re.search(r'\bвыше\b.*?\b(средн(ее|его|ему)|рынк)', text)
+                    and not re.search(r'\bниже\b.*?\b(средн(ее|его|ему)|рынк)', text)):
                 errors.append(
                     "Противоречие направления: банк ниже среднего, "
                     "но вывод утверждает 'выше среднего'"
                 )
         else:
-            # Текст говорит «ниже» без упоминания «выше»
-            if re.search(r'\bниже\b', text) and not re.search(r'\bвыше\b', text):
+            # Текст говорит «ниже среднего/рынка» без упоминания «выше»
+            if (re.search(r'\bниже\b.*?\b(средн(ее|его|ему)|рынк)', text)
+                    and not re.search(r'\bвыше\b.*?\b(средн(ее|его|ему)|рынк)', text)):
                 errors.append(
                     "Противоречие направления: банк выше среднего, "
                     "но вывод утверждает 'ниже среднего'"
@@ -146,6 +180,16 @@ class Evaluator:
                     f"Семантическое преувеличение '{match.group()}' "
                     f"при отклонении {diff:.1f}% < 50%"
                 )
+        return errors
+
+    @staticmethod
+    def _check_semantic_rules(verdict: str) -> list:
+        """Запрещённые слова и конструкции — из Quality Gate ai_orix."""
+        errors = []
+        text = verdict.lower()
+        for pattern, label in FORBIDDEN_PATTERNS:
+            if re.search(pattern, text):
+                errors.append(f"Запрещённое слово или конструкция: '{label}'")
         return errors
 
     @staticmethod
@@ -215,6 +259,10 @@ class Evaluator:
         for k, v in calc.extra.items():
             if isinstance(v, (int, float)):
                 safe.update(Evaluator._number_variants(v))
+            elif isinstance(v, list):
+                for item in v:
+                    if isinstance(item, (int, float)):
+                        safe.update(Evaluator._number_variants(item))
             if isinstance(v, str):
                 for n in re.findall(r'\d+[.,]?\d*', v):
                     safe.add(n.replace(',', '.'))

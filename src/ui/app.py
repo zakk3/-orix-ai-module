@@ -317,11 +317,6 @@ if not is_valid:
         st.write(f"— {e}")
     st.stop()
 
-# Проверяем что выбранная метрика уже реализована
-if selected_type != MetricType.LOSS_SHARE.value:
-    st.warning("В текущей версии реализована только метрика «Чистые потери к бизнес-индикатору».")
-    st.stop()
-
 # Запуск pipeline: расчёты → LLM → валидация
 with st.spinner("Выполняется анализ..."):
     try:

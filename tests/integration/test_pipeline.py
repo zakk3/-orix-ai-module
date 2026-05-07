@@ -84,7 +84,7 @@ def test_case_above_average():
 def test_unsupported_metric():
     print("ТЕСТ 3: Неподдерживаемая метрика → ValueError")
     request = GenerationRequest(
-        metric_type=MetricType.RECOVERY_LEVEL.value,
+        metric_type=MetricType.NET_LOSSES_DYNAMICS.value,
         data=OrixMetricInput(
             series=[
                 OrixSeriesItem(serie="0", label="Мой банк", value=0.5),
@@ -100,10 +100,83 @@ def test_unsupported_metric():
         print(f"  Получена ожидаемая ошибка: {e}  OK")
 
 
+# ── Метрика 2: Динамика прямых потерь ──────────────────────────────────
+
+METRIC2_CASE_GROWING = [
+    {"serie": "2023Q1", "label": "2023Q1", "self": 100, "rest": 200},
+    {"serie": "2023Q2", "label": "2023Q2", "self": 110, "rest": 210},
+    {"serie": "2023Q3", "label": "2023Q3", "self": 120, "rest": 215},
+    {"serie": "2023Q4", "label": "2023Q4", "self": 135, "rest": 225},
+]
+
+METRIC2_CASE_DECLINING = [
+    {"serie": "2023Q1", "label": "2023Q1", "self": 200, "rest": 300},
+    {"serie": "2023Q2", "label": "2023Q2", "self": 185, "rest": 298},
+    {"serie": "2023Q3", "label": "2023Q3", "self": 170, "rest": 302},
+    {"serie": "2023Q4", "label": "2023Q4", "self": 155, "rest": 299},
+    {"serie": "2024Q1", "label": "2024Q1", "self": 140, "rest": 301},
+    {"serie": "2024Q2", "label": "2024Q2", "self": 125, "rest": 300},
+]
+
+
+def build_metric2_request(series_data: list):
+    items = [OrixSeriesItem(**item) for item in series_data]
+    return GenerationRequest(
+        metric_type=MetricType.DIRECT_LOSSES_DYNAMICS.value,
+        period="2023Q1-2024Q2",
+        data=OrixMetricInput(series=items),
+    )
+
+
+def test_metric2_growth():
+    print("ТЕСТ M2.1: Метрика 2 — растущий тренд банка")
+    response = AnalysisPipeline().process_metric(build_metric2_request(METRIC2_CASE_GROWING))
+    calc = response.calculations
+
+    assert calc.metric_type == "direct_losses_dynamics"
+    assert calc.my_bank_value == 135.0
+    assert calc.cluster_avg_value == 225.0
+    assert calc.is_below_average is True
+    assert calc.position is None
+    assert calc.total_banks is None
+    assert calc.deviation_threshold is not None
+    assert calc.extra["my_trend"] == "рост"
+    assert calc.extra["total_quarters"] == 4
+    assert calc.extra["trends_match"] is True
+
+    print(f"  metric={calc.metric_type}, diff={calc.difference_percent}%, "
+          f"my_trend={calc.extra['my_trend']}, "
+          f"avg_trend={calc.extra['avg_trend']}, "
+          f"verdict_len={len(response.verdict)}  OK")
+
+
+def test_metric2_decline():
+    print("ТЕСТ M2.2: Метрика 2 — падающий тренд банка")
+    response = AnalysisPipeline().process_metric(build_metric2_request(METRIC2_CASE_DECLINING))
+    calc = response.calculations
+
+    assert calc.my_bank_value == 125.0
+    assert calc.cluster_avg_value == 300.0
+    assert calc.is_below_average is True
+    assert calc.extra["my_trend"] == "падение"
+    assert calc.extra["avg_trend"] == "стабильный"
+    assert calc.extra["trends_match"] is False
+    assert calc.extra["total_quarters"] == 6
+    assert calc.extra["volatility_comparison"] in ("выше", "ниже", "сопоставима")
+
+    print(f"  diff={calc.difference_percent}%, "
+          f"my_trend={calc.extra['my_trend']}, "
+          f"avg_trend={calc.extra['avg_trend']}, "
+          f"trends_match={calc.extra['trends_match']}, "
+          f"verdict_len={len(response.verdict)}  OK")
+
+
 if __name__ == "__main__":
     test_case_below_average()
     test_case_above_average()
     test_unsupported_metric()
+    test_metric2_growth()
+    test_metric2_decline()
     print("\nВСЕ ТЕСТЫ ПРОЙДЕНЫ")
 
 '''

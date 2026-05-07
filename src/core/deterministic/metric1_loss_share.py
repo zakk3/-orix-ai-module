@@ -13,7 +13,7 @@ AVERAGE_KEYWORDS = ("среднее", "average", "mean")
 THRESHOLD_INSIGNIFICANT = 10.0
 THRESHOLD_MODERATE = 30.0
 
-# Коэффициент для определения выбросов по методу IQR
+# Коэффициент для определения аномалий по методу IQR
 IQR_MULT = 1.5
 
 
@@ -51,7 +51,7 @@ class Metric1Calculator:
         # Медиана по всей выборке включая «Мой банк»
         median_value = statistics.median(other_values + [my_val])
 
-        # Выбросы только среди других банков; скорректированное среднее без них
+        # Аномалии только среди других банков; скорректированное среднее без них
         outliers = self._detect_outliers(other_banks)
         adjusted_avg = self._adjusted_average(other_values, outliers)
 
@@ -67,7 +67,7 @@ class Metric1Calculator:
             "has_outliers": bool(outliers),
         }
 
-        # Если есть выбросы — добавляем информацию о самом крупном
+        # Если есть аномалии — добавляем информацию о самой крупной
         if outliers:
             top = max(outliers, key=lambda b: b["value"])
             extra.update({
@@ -107,15 +107,11 @@ class Metric1Calculator:
 
     @staticmethod
     def _magnitude_label(diff: float, my_val: float, avg_val: float) -> str:
-        # Оценочное слово для отклонения (используется LLM дословно)
+        # Нейтральная числовая метка: «на 67% ниже среднего»
         direction = "ниже" if my_val < avg_val else "выше"
-        if diff < 15:
-            return f"{direction} среднего"
-        elif diff < 40:
-            return f"несколько {direction} среднего"
-        elif diff < 60:
-            return f"заметно {direction} среднего"
-        return f"существенно {direction} среднего"
+        if abs(diff) < 0.5:
+            return f"на уровне среднего"
+        return f"на {diff:.0f}% {direction} среднего"
 
     @staticmethod
     def _classify(diff: float) -> str:
@@ -130,7 +126,7 @@ class Metric1Calculator:
 
     @staticmethod
     def _detect_outliers(banks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        # Выбросы по методу IQR: значения выше Q3 + 1.5 * IQR
+        # Аномалии по методу IQR: значения выше Q3 + 1.5 * IQR
         values = [float(b["value"]) for b in banks]
         if len(values) < 4:
             return []
@@ -148,7 +144,7 @@ class Metric1Calculator:
     def _adjusted_average(
         values: List[float], outliers: List[Dict[str, Any]]
     ) -> Optional[float]:
-        # Среднее без учёта выбросов
+        # Среднее без учёта аномалий
         if not outliers:
             return None
         outlier_vals = {round(o["value"], 6) for o in outliers}
