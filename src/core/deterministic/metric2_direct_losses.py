@@ -10,12 +10,27 @@ MIN_QUARTERS_FOR_TREND = 3
 # Окно для оценки тренда — 3 квартала, как пишут аналитики ОРИКС
 TREND_WINDOW = 3
 
-# Порог наклона для классификации тренда (отношение к среднему уровню)
-SLOPE_STABLE_THRESHOLD = 0.03      # < 3% — стабильно
-SLOPE_SLIGHT_THRESHOLD = 0.12      # < 12% — незначительный тренд
+# Порог наклона для классификации тренда (отношение к среднему уровню).
+# Подобраны под стиль аналитиков ОРИКС:
+#   < 0.5% — стабильный
+#   0.5% – 2% — незначительный (рост/снижение)
+#   > 2% — выраженный (рост/снижение)
+SLOPE_STABLE_THRESHOLD = 0.005
+SLOPE_SLIGHT_THRESHOLD = 0.02
 
 # Пороги для классификации расхождения трендов
 RATIO_VOLATILE_THRESHOLD = 5.0     # отношение max/median > 5 — высокая волатильность
+
+# Классификация уровня убытков относительно рынка (median self / median rest)
+LOSS_LEVEL_LOW_THRESHOLD = 0.5     # < 0.5 — невысокий
+LOSS_LEVEL_HIGH_THRESHOLD = 2.0    # > 2.0 — высокий
+
+# Порог в млн руб. для критерия "крупных" квартальных потерь
+HIGH_LOSS_THRESHOLD_MLN = 2.5
+
+# Пороги для классификации волатильности (max self / median self)
+VOLATILITY_HIGH_THRESHOLD = 50      # > 50 — высокая
+VOLATILITY_MODERATE_THRESHOLD = 5   # > 5 — значительная
 
 
 class Metric2Calculator:
@@ -65,6 +80,23 @@ class Metric2Calculator:
         last_q_factor = last_q_ratio if last_q_ratio > 1 else 1.0 / last_q_ratio
         last_4q_factor = last_4q_ratio if last_4q_ratio > 1 else 1.0 / last_4q_ratio
 
+        # ── Дополнительные поля для сценария «драматично отличаются» ──
+
+        # Уровень убытков банка относительно рынка (по медиане)
+        loss_level, loss_level_label = self._classify_loss_level(self_values, rest_values)
+
+        # Количество кварталов в последних 4 где потери превысили порог
+        last_4_self = self_values[-4:]
+        high_loss_count = sum(1 for v in last_4_self if v > HIGH_LOSS_THRESHOLD_MLN)
+
+        # Пиковый квартал — где self/rest было максимальным
+        peak_quarter_label, peak_factor, peak_direction = self._find_peak_quarter(
+            self_values, rest_values, labels
+        )
+
+        # Уровень волатильности
+        volatility_level = self._classify_volatility(self_values)
+
         extra: Dict[str, Any] = {
             "last_quarter_label": last_q_label_human,
             "last_quarter_serie": labels[-1],
@@ -89,6 +121,16 @@ class Metric2Calculator:
             "consistent_above_market": consistent_above,
             "consistent_below_market": consistent_below,
             "is_volatile": volatile,
+
+            # Поля для сценария «драматично отличаются»
+            "loss_level": loss_level,                       # "невысоким" / "средним" / "высоким"
+            "loss_level_label": loss_level_label,           # "невысокий" / "средний" / "высокий"
+            "high_loss_threshold_mln": HIGH_LOSS_THRESHOLD_MLN,
+            "high_loss_count_last_4": high_loss_count,
+            "peak_quarter_label": peak_quarter_label,       # "Q2 2025"
+            "peak_factor_fmt": self._fmt_factor(peak_factor),
+            "peak_direction": peak_direction,               # "превысили" / "оказались ниже"
+            "volatility_level": volatility_level,           # "высокой" / "значительной" / "умеренной"
 
             "self_last": round(self_values[-1], 2),
             "rest_last": round(rest_values[-1], 2),
@@ -116,7 +158,7 @@ class Metric2Calculator:
             extra=extra,
         )
 
-    # Извлечение временного ряда
+    # ── Извлечение временного ряда ────────────────────────────────────────
 
     @staticmethod
     def _extract_series(
@@ -138,34 +180,27 @@ class Metric2Calculator:
             labels.append(str(item.get("serie", item.get("label", ""))))
         return self_vals, rest_vals, labels
 
-    #  Тренды 
+    # ── Тренды ─────────────────────────────────────────────────────────────
 
     @staticmethod
     def _classify_trend(values: List[float]) -> str:
-        # Классификация тренда по относительному наклону регрессии
+        # Классификация тренда по изменению "первое значение vs последнее" в окне.
+        # Это проще регрессии и лучше совпадает с тем как человек читает временной ряд.
         if len(values) < 2:
             return "стабильный"
 
-        n = len(values)
-        x_mean = (n - 1) / 2
-        y_mean = statistics.mean(values)
-        if y_mean == 0:
+        first, last = values[0], values[-1]
+        if first == 0:
             return "стабильный"
 
-        # Наклон через метод наименьших квадратов
-        num = sum((i - x_mean) * (v - y_mean) for i, v in enumerate(values))
-        den = sum((i - x_mean) ** 2 for i in range(n))
-        slope = num / den if den != 0 else 0
+        change_pct = (last - first) / first * 100
 
-        # Относительный наклон: насколько сильно ряд меняется относительно своего уровня
-        relative_slope = slope / y_mean if y_mean != 0 else 0
-
-        if abs(relative_slope) < SLOPE_STABLE_THRESHOLD:
+        if abs(change_pct) < 2:
             return "стабильный"
-        elif abs(relative_slope) < SLOPE_SLIGHT_THRESHOLD:
-            return "незначительный рост" if relative_slope > 0 else "незначительное снижение"
+        elif abs(change_pct) < 15:
+            return "незначительный рост" if change_pct > 0 else "незначительное снижение"
         else:
-            return "рост" if relative_slope > 0 else "снижение"
+            return "рост" if change_pct > 0 else "снижение"
 
     @staticmethod
     def _divergence_label(
@@ -174,53 +209,63 @@ class Metric2Calculator:
         bank_trend: str,
         market_trend: str,
     ) -> str:
-        # Классификация по шкале из эталонов: совпадают / незначительно / несколько /
-        # существенно / драматично
+        # Классификация расхождения трендов по 5-уровневой шкале
 
-        # Проверяем сначала драматическое расхождение через волатильность отношений
+        # 1) Сначала проверяем волатильность отношений self/rest — это «драматично»
         ratios = [s / r for s, r in zip(self_vals, rest_vals) if r != 0]
         if ratios:
-            max_ratio = max(ratios)
-            min_ratio = min(ratios)
-            spread = max_ratio / min_ratio if min_ratio > 0 else float('inf')
-            # Если разброс отношений колоссальный — это драматичный случай
+            max_r, min_r = max(ratios), min(ratios)
+            spread = max_r / min_r if min_r > 0 else float('inf')
             if spread > 50:
                 return "драматично отличаются"
 
-        # Если тренды совпадают (и не было драматического расхождения) — совпадают
-        if bank_trend == market_trend:
+        # Определяем направление и силу каждого тренда
+        def parse(trend: str) -> Tuple[str, str]:
+            # Возвращает (direction, strength): direction ∈ {рост, снижение, стабильный}
+            # strength ∈ {strong, slight, stable}
+            if "стабильный" in trend:
+                return "стабильный", "stable"
+            if "незначительн" in trend:
+                direction = "рост" if "рост" in trend else "снижение"
+                return direction, "slight"
+            direction = "рост" if "рост" in trend else "снижение"
+            return direction, "strong"
+
+        bank_dir, bank_str = parse(bank_trend)
+        market_dir, market_str = parse(market_trend)
+
+        # 2) Оба тренда «стабильные» → совпадают
+        if bank_str == "stable" and market_str == "stable":
             return "в целом совпадают"
 
-        # Один в рост, другой в снижение — самое сильное расхождение направлений
-        bank_growing = "рост" in bank_trend
-        bank_declining = "снижение" in bank_trend
-        market_growing = "рост" in market_trend
-        market_declining = "снижение" in market_trend
-
-        opposite_directions = (
-            (bank_growing and market_declining)
-            or (bank_declining and market_growing)
-        )
-
-        if opposite_directions:
-            # Если хотя бы один тренд явный (без «незначительн»), то существенно
-            both_strong = ("незначительн" not in bank_trend
-                          and "незначительн" not in market_trend)
-            if both_strong:
-                return "существенно отличаются"
-            return "несколько отличаются"
-
-        # Один стабилен, другой нет
-        if "стабильный" in (bank_trend, market_trend):
-            non_stable = bank_trend if bank_trend != "стабильный" else market_trend
-            if "незначительн" in non_stable:
+        # 3) Один стабильный, другой нет
+        if bank_str == "stable" or market_str == "stable":
+            other_strength = market_str if bank_str == "stable" else bank_str
+            if other_strength == "slight":
                 return "незначительно отличаются"
             return "существенно отличаются"
 
-        # Иначе оба — слабые тренды разной направленности
-        return "несколько отличаются"
+        # Оба ненулевые — сравниваем направления
+        same_direction = bank_dir == market_dir
 
-    #  Соотношения и волатильность 
+        # 4) Одно направление, разная сила (рост+рост слабый, снижение+снижение слабое и т.д.)
+        if same_direction:
+            if bank_str == market_str:
+                return "в целом совпадают"
+            return "существенно отличаются"
+
+        # 5) Противоположные направления
+        # Оба слабые (один слабый рост, другой слабое снижение) → несколько
+        if bank_str == "slight" and market_str == "slight":
+            return "несколько отличаются"
+        # Один сильный, другой слабый — несколько отличаются
+        if (bank_str == "strong" and market_str == "slight") or \
+           (bank_str == "slight" and market_str == "strong"):
+            return "несколько отличаются"
+        # Оба сильные противоположные → существенно
+        return "существенно отличаются"
+
+    # ── Соотношения и волатильность ───────────────────────────────────────
 
     @staticmethod
     def _ratio(numerator: float, denominator: float) -> float:
@@ -246,7 +291,69 @@ class Metric2Calculator:
             return False
         return max(values) / med > RATIO_VOLATILE_THRESHOLD
 
-    #  Форматирование
+    @staticmethod
+    def _classify_loss_level(
+        self_vals: List[float], rest_vals: List[float]
+    ) -> Tuple[str, str]:
+        # Уровень убытков банка относительно рынка по медианам.
+        # Возвращает (instrumental, nominative): "невысоким", "невысокий"
+        self_med = statistics.median(self_vals)
+        rest_med = statistics.median(rest_vals)
+        if rest_med == 0:
+            return "средним", "средний"
+        ratio = self_med / rest_med
+        if ratio < LOSS_LEVEL_LOW_THRESHOLD:
+            return "невысоким", "невысокий"
+        if ratio > LOSS_LEVEL_HIGH_THRESHOLD:
+            return "высоким", "высокий"
+        return "средним", "средний"
+
+    @staticmethod
+    def _classify_volatility(values: List[float]) -> str:
+        # Уровень волатильности по отношению max/median (instrumental case)
+        if len(values) < 4:
+            return "умеренной"
+        med = statistics.median(values)
+        if med == 0:
+            return "умеренной"
+        ratio = max(values) / med
+        if ratio > VOLATILITY_HIGH_THRESHOLD:
+            return "высокой"
+        if ratio > VOLATILITY_MODERATE_THRESHOLD:
+            return "значительной"
+        return "умеренной"
+
+    @staticmethod
+    def _find_peak_quarter(
+        self_vals: List[float],
+        rest_vals: List[float],
+        labels: List[str],
+    ) -> Tuple[str, float, str]:
+        # Находим квартал с максимальным отношением self/rest.
+        # Возвращает (quarter_label, factor, direction)
+        # direction: "превысили" если банк выше рынка, "оказались ниже" — если меньше
+        ratios = [
+            (s / r if r > 0 else 0.0, label, s, r)
+            for s, r, label in zip(self_vals, rest_vals, labels)
+        ]
+        peak_ratio, peak_serie, peak_self, peak_rest = max(ratios, key=lambda x: x[0])
+
+        if peak_ratio > 1:
+            factor = peak_ratio
+            direction = "превысили"
+        else:
+            factor = 1.0 / peak_ratio if peak_ratio > 0 else 0.0
+            direction = "оказались ниже"
+
+        # Форматируем квартал: "2025Q2" → "Q2 2025"
+        if "Q" in peak_serie:
+            parts = peak_serie.split("Q")
+            if len(parts) == 2 and parts[0].isdigit():
+                peak_serie = f"Q{parts[1]} {parts[0]}"
+
+        return peak_serie, factor, direction
+
+    # ── Форматирование ─────────────────────────────────────────────────────
 
     @staticmethod
     def _format_quarter(serie: str) -> str:
@@ -259,10 +366,5 @@ class Metric2Calculator:
 
     @staticmethod
     def _fmt_factor(val: float) -> str:
-        # Форматирование коэффициента: 1.4, 3.6, 241.6 — в стиле эталонов
-        if val >= 100:
-            return f"{val:.1f}"
-        elif val >= 10:
-            return f"{val:.1f}"
-        else:
-            return f"{val:.1f}"
+        # Коэффициент в русском формате: 1.4 → "1,4"
+        return f"{val:.1f}".replace(".", ",")
