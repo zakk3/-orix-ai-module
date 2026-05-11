@@ -68,6 +68,39 @@ class Metric2Calculator:
         consistent_above = all(s > r for s, r in zip(self_values, rest_values))
         consistent_below = all(s < r for s, r in zip(self_values, rest_values))
 
+        # Мажоритарное правило: банк ниже/выше рынка в большинстве периодов.
+        # Используется для сценариев с одним-двумя аномальными кварталами
+        # (например «драматично отличаются»), где consistent_* = false,
+        # но общая картина всё равно ясна.
+        below_count = sum(1 for s, r in zip(self_values, rest_values) if s < r)
+        above_count = len(self_values) - below_count
+        mostly_below = below_count > len(self_values) / 2
+        mostly_above = above_count > len(self_values) / 2
+
+        # Готовое предложение про размерные классы (если применимо)
+        if consistent_above:
+            size_class_sentence = (
+                "Постоянное стабильное превышение ваших потерь над усреднёнными "
+                "потерями банков сравнения может также говорить о различиях "
+                "в размерных классах вашего банка и объектов сравнения."
+            )
+        elif consistent_below:
+            size_class_sentence = (
+                "Постоянное стабильное превышение усреднённых потерь над потерями "
+                "вашего банка может также говорить о различиях в размерных классах "
+                "вашего банка и объектов сравнения."
+            )
+        else:
+            size_class_sentence = ""
+
+        # Для сценария «драматично» — словесное описание превалирующего положения
+        if mostly_below:
+            mostly_position_label = "ниже"
+        elif mostly_above:
+            mostly_position_label = "выше"
+        else:
+            mostly_position_label = "сопоставимо со"
+
         # Проверяем волатильность (для сценариев типа «драматично отличаются»)
         volatile = self._is_volatile(self_values)
 
@@ -85,9 +118,12 @@ class Metric2Calculator:
         # Уровень убытков банка относительно рынка (по медиане)
         loss_level, loss_level_label = self._classify_loss_level(self_values, rest_values)
 
-        # Количество кварталов в последних 4 где потери превысили порог
+        # Динамический порог "аномальных" потерь — 5× медианы по всем периодам.
+        # Это ловит выбросы независимо от масштаба данных (хоть тысячи, хоть миллионы)
+        median_self = statistics.median(self_values)
+        anomaly_threshold = max(5.0 * median_self, 1.0)
         last_4_self = self_values[-4:]
-        high_loss_count = sum(1 for v in last_4_self if v > HIGH_LOSS_THRESHOLD_MLN)
+        high_loss_count = sum(1 for v in last_4_self if v > anomaly_threshold)
 
         # Пиковый квартал — где self/rest было максимальным
         peak_quarter_label, peak_factor, peak_direction = self._find_peak_quarter(
@@ -120,6 +156,10 @@ class Metric2Calculator:
 
             "consistent_above_market": consistent_above,
             "consistent_below_market": consistent_below,
+            "mostly_below_market": mostly_below,
+            "mostly_above_market": mostly_above,
+            "mostly_position_label": mostly_position_label,
+            "size_class_sentence": size_class_sentence,
             "is_volatile": volatile,
 
             # Поля для сценария «драматично отличаются»
@@ -258,10 +298,10 @@ class Metric2Calculator:
         # Оба слабые (один слабый рост, другой слабое снижение) → несколько
         if bank_str == "slight" and market_str == "slight":
             return "несколько отличаются"
-        # Один сильный, другой слабый — несколько отличаются
+        # Один сильный, другой слабый — это уже сильное расхождение
         if (bank_str == "strong" and market_str == "slight") or \
            (bank_str == "slight" and market_str == "strong"):
-            return "несколько отличаются"
+            return "существенно отличаются"
         # Оба сильные противоположные → существенно
         return "существенно отличаются"
 
