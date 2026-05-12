@@ -55,9 +55,21 @@ class Metric2Calculator:
         last_q_ratio = self._ratio(self_values[-1], rest_values[-1])
         last_4q_ratio = self._sum_ratio(self_values[-4:], rest_values[-4:])
 
-        # Тренды за последние 4 квартала (даёт более точную картину чем 3)
-        bank_trend = self._classify_trend(self_values[-TREND_WINDOW:])
-        market_trend = self._classify_trend(rest_values[-TREND_WINDOW:])
+        # Тренды за последние TREND_WINDOW кварталов с защитой от выбросов
+        bank_trend = self._classify_trend(self_values[-TREND_WINDOW:], all_values=self_values)
+        market_trend = self._classify_trend(rest_values[-TREND_WINDOW:], all_values=rest_values)
+
+        # Готовая формулировка тренда банка для предложения 2 сценария «существенно отличаются».
+        # Сильный тренд («рост»/«снижение») → добавляем «планомерный/-ое» и «потерь».
+        # Слабый тренд → добавляем только «потерь».
+        _trend_display_map = {
+            "рост":                    "планомерный рост потерь",
+            "снижение":                "планомерное снижение потерь",
+            "незначительный рост":     "незначительный рост потерь",
+            "незначительное снижение": "незначительное снижение потерь",
+            "стабильный":              "стабильный уровень потерь",
+        }
+        bank_trend_display = _trend_display_map.get(bank_trend, bank_trend)
 
         # Расхождение трендов и общая характеристика
         divergence_label = self._divergence_label(
@@ -119,7 +131,6 @@ class Metric2Calculator:
         loss_level, loss_level_label = self._classify_loss_level(self_values, rest_values)
 
         # Динамический порог "аномальных" потерь — 5× медианы по всем периодам.
-        # Это ловит выбросы независимо от масштаба данных (хоть тысячи, хоть миллионы)
         median_self = statistics.median(self_values)
         anomaly_threshold = max(5.0 * median_self, 1.0)
         last_4_self = self_values[-4:]
@@ -133,6 +144,46 @@ class Metric2Calculator:
         # Уровень волатильности
         volatility_level = self._classify_volatility(self_values)
 
+        # Готовое предложение о пике (грамматически корректное, вставляется дословно)
+        if peak_direction == "превысили":
+            peak_sentence = (
+                f"в {peak_quarter_label} потери вашего банка более чем в "
+                f"{self._fmt_factor(peak_factor)} раза превысили потери банков сравнения"
+            )
+        else:
+            peak_sentence = (
+                f"в {peak_quarter_label} потери вашего банка более чем в "
+                f"{self._fmt_factor(peak_factor)} раза оказались ниже средних потерь "
+                f"банков сравнения"
+            )
+
+        # Готовое предложение-интерпретация для сценария «драматично» (вставляется дословно)
+        if mostly_below:
+            drama_interpretation_sentence = (
+                "Несмотря на то что почти во всех периодах величина потерь вашего банка "
+                "в несколько раз меньше средних потерь банков сравнения, данная ситуация "
+                "требует внимания, т.к. разовые крупные потери вашего банка, кратно "
+                "превышающие среднерыночные, свидетельствуют о наличии в банке рисков "
+                "высокого уровня, не до конца минимизированных системой контрольных процедур."
+            )
+        elif mostly_above:
+            drama_interpretation_sentence = (
+                "Несмотря на то что в большинстве периодов величина потерь вашего банка "
+                "выше средних потерь банков сравнения, разовые крупные отклонения "
+                "свидетельствуют о наличии в банке рисков высокого уровня, не до конца "
+                "минимизированных системой контрольных процедур."
+            )
+        else:
+            drama_interpretation_sentence = (
+                "Несмотря на то что в большинстве периодов величина потерь вашего банка "
+                "сопоставима со средними потерями банков сравнения, разовые крупные "
+                "отклонения свидетельствуют о наличии в банке рисков высокого уровня, "
+                "не до конца минимизированных системой контрольных процедур."
+            )
+
+        _count_words = {0: "ни одном", 1: "одном", 2: "двух", 3: "трёх", 4: "четырёх"}
+        high_loss_count_word = _count_words.get(high_loss_count, str(high_loss_count))
+
         extra: Dict[str, Any] = {
             "last_quarter_label": last_q_label_human,
             "last_quarter_serie": labels[-1],
@@ -140,6 +191,7 @@ class Metric2Calculator:
             "total_quarters": len(self_values),
 
             "bank_trend_3q": bank_trend,
+            "bank_trend_display": bank_trend_display,       # "планомерный рост потерь" / "незначительный рост потерь" etc.
             "market_trend_3q": market_trend,
             "trends_aligned": (bank_trend == market_trend),
             "divergence_label": divergence_label,
@@ -167,10 +219,13 @@ class Metric2Calculator:
             "loss_level_label": loss_level_label,           # "невысокий" / "средний" / "высокий"
             "high_loss_threshold_mln": HIGH_LOSS_THRESHOLD_MLN,
             "high_loss_count_last_4": high_loss_count,
+            "high_loss_count_word": high_loss_count_word,   # "одном" / "двух" / "трёх" / "четырёх"
             "peak_quarter_label": peak_quarter_label,       # "Q2 2025"
             "peak_factor_fmt": self._fmt_factor(peak_factor),
             "peak_direction": peak_direction,               # "превысили" / "оказались ниже"
             "volatility_level": volatility_level,           # "высокой" / "значительной" / "умеренной"
+            "peak_sentence": peak_sentence,                 # готовое предложение о пике
+            "drama_interpretation_sentence": drama_interpretation_sentence,  # готовая интерпретация
 
             "self_last": round(self_values[-1], 2),
             "rest_last": round(rest_values[-1], 2),
@@ -223,11 +278,21 @@ class Metric2Calculator:
     # ── Тренды ─────────────────────────────────────────────────────────────
 
     @staticmethod
-    def _classify_trend(values: List[float]) -> str:
+    def _classify_trend(values: List[float], all_values: List[float] = None) -> str:
         # Классификация тренда по изменению "первое значение vs последнее" в окне.
-        # Это проще регрессии и лучше совпадает с тем как человек читает временной ряд.
+        # Если передан all_values — исключаем из окна выбросы (> 5× медианы полного ряда),
+        # чтобы один аномальный квартал не искажал классификацию тренда.
         if len(values) < 2:
             return "стабильный"
+
+        # Outlier exclusion: убираем значения, превышающие 5× медиану полного ряда
+        if all_values and len(all_values) >= 3:
+            series_median = statistics.median(all_values)
+            if series_median > 0:
+                outlier_threshold = 5.0 * series_median
+                clean = [v for v in values if v <= outlier_threshold]
+                if len(clean) >= 2:
+                    values = clean
 
         first, last = values[0], values[-1]
         if first == 0:
@@ -291,6 +356,16 @@ class Metric2Calculator:
         # 4) Одно направление, разная сила (рост+рост слабый, снижение+снижение слабое и т.д.)
         if same_direction:
             if bank_str == market_str:
+                # Оба «незначительные» — сравниваем фактические темпы изменения.
+                # Если темпы различаются более чем на 20% относительно большего — «незначительно отличаются».
+                if bank_str == "slight":
+                    b_first = self_vals[-3] if len(self_vals) >= 3 else self_vals[0]
+                    m_first = rest_vals[-3] if len(rest_vals) >= 3 else rest_vals[0]
+                    b_rate = abs((self_vals[-1] - b_first) / b_first) if b_first != 0 else 0.0
+                    m_rate = abs((rest_vals[-1] - m_first) / m_first) if m_first != 0 else 0.0
+                    max_rate = max(b_rate, m_rate)
+                    if max_rate > 0 and abs(b_rate - m_rate) / max_rate > 0.20:
+                        return "незначительно отличаются"
                 return "в целом совпадают"
             return "существенно отличаются"
 
