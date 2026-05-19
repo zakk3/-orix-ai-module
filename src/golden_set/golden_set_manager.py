@@ -13,6 +13,7 @@ DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 METRIC_FILES = {
     "loss_share":              "metric1.json",
     "direct_losses_dynamics":  "metric2.json",
+    "loss_buckets":            "metric3.json",
     "net_losses_dynamics":     "metric3.json",
     "recovery_level":          "metric4.json",
     "concentration":           "metric5.json",

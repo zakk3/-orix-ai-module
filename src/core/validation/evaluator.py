@@ -234,7 +234,51 @@ def check_trend_direction(verdict: str, calc: MetricCalculations) -> list:
     return []
 
 
-# Главный класс 
+# Проверки для Метрики 3 (loss_buckets)
+
+def check_scenario_label_used_m3(verdict: str, calc: MetricCalculations) -> list:
+    # Метка сценария должна присутствовать в тексте вывода
+    scenario = calc.extra.get("scenario_label", "")
+    if not scenario:
+        return []
+    # Ищем ключевые слова из каждой метки
+    stems = {
+        "незначительные отклонения": ["незначительн"],
+        "расхождения": ["расхожден"],
+        "кардинально отличается": ["кардинальн"],
+    }
+    for label, keywords in stems.items():
+        if label == scenario:
+            if not any(k in verdict.lower() for k in keywords):
+                return [f"Сценарий '{scenario}' не отражён в тексте"]
+    return []
+
+
+def check_total_deviation_mentioned_m3(verdict: str, calc: MetricCalculations) -> list:
+    # Суммарное отклонение (п.п.) должно быть упомянуто
+    total = calc.extra.get("total_deviation")
+    if total is None:
+        return []
+    total_str = str(total).replace(".", ",")
+    if total_str not in verdict and str(total) not in verdict:
+        return [f"Суммарное отклонение '{total} п.п.' не упомянуто в тексте"]
+    return []
+
+
+def check_max_diff_bucket_mentioned_m3(verdict: str, calc: MetricCalculations) -> list:
+    # Бакет с максимальным отклонением должен быть упомянут (для расхождений)
+    scenario = calc.extra.get("scenario_label", "")
+    if scenario not in ("расхождения", "кардинально отличается"):
+        return []
+    bucket = calc.extra.get("max_diff_bucket", "")
+    # Используем очищенную метку (без "+") — LLM пишет "от 7000 тыс.руб.", а не "7000+"
+    bucket_clean = bucket.rstrip("+") if bucket else ""
+    if bucket_clean and bucket_clean not in verdict:
+        return [f"Бакет с максимальным отклонением '{bucket_clean}' не упомянут"]
+    return []
+
+
+# Главный класс
 
 class Evaluator:
 
@@ -261,6 +305,11 @@ class Evaluator:
             check_last_quarter_mentioned,
             check_ratios_present,
             check_trend_direction,
+        ],
+        "loss_buckets": [
+            check_scenario_label_used_m3,
+            check_total_deviation_mentioned_m3,
+            check_max_diff_bucket_mentioned_m3,
         ],
     }
 

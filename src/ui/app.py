@@ -15,7 +15,7 @@ LOGO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "
 METRICS = [
     ("Чистые потери к бизнес-индикатору",               MetricType.LOSS_SHARE.value),
     ("Уровень возмещения прямых потерь",                 MetricType.RECOVERY_LEVEL.value),
-    ("Распределение по бакетам потерь",                  MetricType.NET_LOSSES_DYNAMICS.value),
+    ("Распределение по бакетам потерь",                  MetricType.LOSS_BUCKETS.value),
     ("Динамика чистых потерь за период",                 MetricType.DIRECT_LOSSES_DYNAMICS.value),
     ("Распределение прямых потерь по источникам риска",  MetricType.CONCENTRATION.value),
     ("Декомпозиция непрямых потерь",                     MetricType.KPUR_VIOLATION.value),
@@ -321,11 +321,12 @@ if not is_valid:
 SUPPORTED_METRICS = {
     MetricType.LOSS_SHARE.value,
     MetricType.DIRECT_LOSSES_DYNAMICS.value,
+    MetricType.LOSS_BUCKETS.value,
 }
 if selected_type not in SUPPORTED_METRICS:
     st.warning(
-        "В текущей версии реализованы метрики «Чистые потери к бизнес-индикатору» "
-        "и «Динамика чистых потерь за период»."
+        "В текущей версии реализованы метрики «Чистые потери к бизнес-индикатору», "
+        "«Динамика чистых потерь за период» и «Распределение по бакетам потерь»."
     )
     st.stop()
 
