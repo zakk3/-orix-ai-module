@@ -278,6 +278,73 @@ def check_max_diff_bucket_mentioned_m3(verdict: str, calc: MetricCalculations) -
     return []
 
 
+# Проверки для Метрики 4 (recovery_rate)
+
+def check_scenario_label_used_m4(verdict: str, calc: MetricCalculations) -> list:
+    # Метка сценария должна отражаться в тексте вывода
+    scenario = calc.extra.get("scenario_label", "")
+    if not scenario:
+        return []
+
+    stems = {
+        "соответствует":                  ["соответствует", "соответствуют"],
+        "существенные отклонения":        ["существенн"],
+        "весьма существенные отклонения": ["весьма существенн"],
+        "выше среднего":                  ["выше"],
+    }
+    keywords = stems.get(scenario, [])
+    if keywords and not any(k in verdict.lower() for k in keywords):
+        return [f"Сценарий '{scenario}' не отражён в тексте вывода"]
+    return []
+
+
+def check_diff_abs_mentioned_m4(verdict: str, calc: MetricCalculations) -> list:
+    # Для сценариев с отклонением значение п.п. должно быть упомянуто
+    scenario = calc.extra.get("scenario_label", "")
+    if scenario == "соответствует":
+        return []  # В этом сценарии конкретная цифра п.п. не обязательна
+
+    diff_abs = calc.extra.get("diff_abs")
+    if diff_abs is None:
+        return []
+
+    diff_str_dot   = str(diff_abs)
+    diff_str_comma = diff_str_dot.replace(".", ",")
+    if diff_str_dot not in verdict and diff_str_comma not in verdict:
+        return [f"Отклонение '{diff_abs} п.п.' не упомянуто в тексте"]
+    return []
+
+
+def check_direction_m4(verdict: str, calc: MetricCalculations) -> list:
+    # Направление (выше/ниже) не должно противоречить данным
+    scenario = calc.extra.get("scenario_label", "")
+    if scenario == "соответствует":
+        return []  # Для «соответствует» направление не критично
+
+    text = verdict.lower()
+    is_above = calc.extra.get("is_above_average", False)
+
+    if is_above:
+        if re.search(r'\bниже\b', text) and not re.search(r'\bвыше\b', text):
+            return ["Противоречие направления: банк выше среднего, вывод говорит 'ниже'"]
+    else:
+        if re.search(r'\bвыше\b', text) and not re.search(r'\bниже\b', text):
+            return ["Противоречие направления: банк ниже среднего, вывод говорит 'выше'"]
+    return []
+
+
+def check_representativeness_mentioned_m4(verdict: str, calc: MetricCalculations) -> list:
+    # Процент репрезентативности и упоминание ОРИКС должны быть в тексте
+    errors = []
+    pct = calc.extra.get("representativeness_pct", 62)
+    pct_str = f"{pct}%"
+    if pct_str not in verdict:
+        errors.append(f"Репрезентативность '{pct_str}' не упомянута в тексте")
+    if "ОРИКС" not in verdict:
+        errors.append("Слово 'ОРИКС' отсутствует в тексте")
+    return errors
+
+
 # Главный класс
 
 class Evaluator:
@@ -310,6 +377,12 @@ class Evaluator:
             check_scenario_label_used_m3,
             check_total_deviation_mentioned_m3,
             check_max_diff_bucket_mentioned_m3,
+        ],
+        "recovery_level": [
+            check_scenario_label_used_m4,
+            check_diff_abs_mentioned_m4,
+            check_direction_m4,
+            check_representativeness_mentioned_m4,
         ],
     }
 
