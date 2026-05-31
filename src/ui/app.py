@@ -323,12 +323,13 @@ SUPPORTED_METRICS = {
     MetricType.DIRECT_LOSSES_DYNAMICS.value,
     MetricType.LOSS_BUCKETS.value,
     MetricType.RECOVERY_LEVEL.value,
+    MetricType.CONCENTRATION.value,
 }
 if selected_type not in SUPPORTED_METRICS:
     st.warning(
         "В текущей версии реализованы метрики «Чистые потери к бизнес-индикатору», "
-        "«Динамика чистых потерь за период», «Распределение по бакетам потерь» "
-        "и «Уровень возмещения прямых потерь»."
+        "«Динамика чистых потерь за период», «Распределение по бакетам потерь», "
+        "«Уровень возмещения прямых потерь» и «Распределение прямых потерь по источникам риска»."
     )
     st.stop()
 

@@ -11,6 +11,7 @@ from src.core.deterministic.metric1_loss_share import Metric1Calculator
 from src.core.deterministic.metric2_direct_losses import Metric2Calculator
 from src.core.deterministic.metric3_loss_buckets import Metric3Calculator
 from src.core.deterministic.metric4_recovery import Metric4Calculator
+from src.core.deterministic.metric5_concentration import Metric5Calculator
 from src.core.nlg.generator import NLGGenerator
 
 
@@ -23,6 +24,7 @@ class AnalysisPipeline:
             MetricType.DIRECT_LOSSES_DYNAMICS.value: Metric2Calculator(),
             MetricType.LOSS_BUCKETS.value: Metric3Calculator(),
             MetricType.RECOVERY_LEVEL.value: Metric4Calculator(),
+            MetricType.CONCENTRATION.value: Metric5Calculator(),
         }
         self.generator = NLGGenerator()
         self.evaluator = Evaluator()

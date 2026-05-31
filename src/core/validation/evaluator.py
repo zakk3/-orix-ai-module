@@ -345,6 +345,66 @@ def check_representativeness_mentioned_m4(verdict: str, calc: MetricCalculations
     return errors
 
 
+# ── Метрика 5: Концентрация по источникам риска ───────────────────────────────
+
+def check_scenario_label_used_m5(verdict: str, calc: MetricCalculations) -> list:
+    """Ключевое слово сценария должно присутствовать в тексте."""
+    scenario = calc.extra.get("scenario_label", "")
+    stems = {
+        "идентична":              ["идентичн"],
+        "некоторые отличия":      ["некоторы", "отличи"],
+        "некоторые различия":     ["некоторы", "различи", "отличи"],
+        "умеренные различия":     ["умеренн", "отличает"],
+        "значительно отличается": ["значительн"],
+    }
+    keywords = stems.get(scenario, [scenario[:6]])
+    text = verdict.lower()
+    if not any(kw in text for kw in keywords):
+        return [f"Сценарий '{scenario}' не отражён в тексте"]
+    return []
+
+
+def check_n_significant_mentioned_m5(verdict: str, calc: MetricCalculations) -> list:
+    """Количество источников с существенным отклонением должно быть упомянуто."""
+    n = calc.extra.get("n_significant", 0)
+    if n == 0:
+        return []  # "ни по одному" — достаточно факта отсутствия отклонений
+    if str(n) not in verdict:
+        return [f"Количество источников с существенным отклонением '{n}' не упомянуто"]
+    return []
+
+
+def check_top2_bank_mentioned_m5(verdict: str, calc: MetricCalculations) -> list:
+    """Оба топ-2 источника банка должны быть упомянуты в тексте."""
+    top2 = calc.extra.get("top2_bank", [])
+    errors = []
+    text = verdict.lower()
+    for source in top2:
+        # Use a 6-char root stem of the first word to handle Russian inflection
+        # e.g. "Внешние" → stem "внешни" matches "Внешними", "Внешних", etc.
+        first_word = source.split()[0].lower()
+        stem = first_word[:6]
+        if stem not in text:
+            errors.append(f"Топ-2 источник банка '{source}' не упомянут в тексте")
+    return errors
+
+
+def check_nedostatki_alert_m5(verdict: str, calc: MetricCalculations) -> list:
+    """Если alert сработал — в тексте должно быть упоминание Недостатков процессов."""
+    if not calc.extra.get("has_nedostatki_alert", False):
+        return []
+    if "недостатки процессов" not in verdict.lower():
+        return ["Блок тревоги по 'Недостатки процессов' не включён в текст"]
+    diff_abs = calc.extra.get("nedostatki_diff_abs")
+    if diff_abs is not None:
+        # Accept both decimal dot and comma (Russian convention: 13.7 or 13,7)
+        dot_form   = str(diff_abs)
+        comma_form = dot_form.replace(".", ",")
+        if dot_form not in verdict and comma_form not in verdict:
+            return [f"Отклонение по Недостаткам процессов '{diff_abs} п.п.' не упомянуто"]
+    return []
+
+
 # Главный класс
 
 class Evaluator:
@@ -383,6 +443,12 @@ class Evaluator:
             check_diff_abs_mentioned_m4,
             check_direction_m4,
             check_representativeness_mentioned_m4,
+        ],
+        "concentration": [
+            check_scenario_label_used_m5,
+            check_n_significant_mentioned_m5,
+            check_top2_bank_mentioned_m5,
+            check_nedostatki_alert_m5,
         ],
     }
 
