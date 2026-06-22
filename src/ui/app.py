@@ -10,6 +10,76 @@ from src.core.validation.input_validator import InputValidator
 
 
 LOGO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "orix_logo.png")
+FONTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "fonts")
+
+# Шрифты VK Sans Display / VK Sans Text — встраиваются как base64 data URI,
+# если соответствующий файл найден в FONTS_DIR. Поддерживаются форматы
+# .woff2 / .woff / .ttf / .otf — формат определяется по расширению файла.
+# Если файла нет — @font-face для этого начертания просто не генерируется,
+# и браузер использует fallback-цепочку (Inter → Arial) из font-family.
+VK_FONT_FILES = {
+    "VK Sans Display": [
+        # Реальные файлы, которые сейчас есть (.ttf):
+        ("VKSansDisplay-Regular.ttf", 400),
+        ("VKSansDisplay-Medium.ttf", 500),
+        ("VKSansDisplay-DemiBold.ttf", 600),
+        ("VKSansDisplay-Bold.ttf", 700),
+    ],
+    "VK Sans Text": [
+        ("VKSansText-Regular.ttf", 400),
+        ("VKSansText-Medium.ttf", 500),
+    ],
+}
+
+# Расширение файла → формат для @font-face src() + MIME-тип для data URI
+_FONT_FORMAT_BY_EXT = {
+    ".woff2": ("woff2", "font/woff2"),
+    ".woff":  ("woff",  "font/woff"),
+    ".ttf":   ("truetype", "font/ttf"),
+    ".otf":   ("opentype", "font/otf"),
+}
+
+
+def _font_face_data(filename: str):
+    """
+    Возвращает (base64, css_format, mime) для файла шрифта из FONTS_DIR,
+    либо (None, None, None) если файл не найден или расширение не поддерживается.
+    """
+    path = os.path.join(FONTS_DIR, filename)
+    if not os.path.exists(path):
+        return None, None, None
+    ext = os.path.splitext(filename)[1].lower()
+    fmt_mime = _FONT_FORMAT_BY_EXT.get(ext)
+    if not fmt_mime:
+        return None, None, None
+    css_format, mime = fmt_mime
+    with open(path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode()
+    return b64, css_format, mime
+
+
+def build_vk_font_faces_css() -> str:
+    """
+    Строит @font-face блоки для VK Sans Display / VK Sans Text.
+    Каждое начертание встраивается ТОЛЬКО если файл физически найден —
+    отсутствующие файлы просто пропускаются (без ошибок), и в этом случае
+    font-family откатывается на 'Inter'/Arial по fallback-цепочке.
+    """
+    blocks = []
+    for family, files in VK_FONT_FILES.items():
+        for filename, weight in files:
+            b64, css_format, mime = _font_face_data(filename)
+            if not b64:
+                continue
+            blocks.append(f"""
+@font-face {{
+    font-family: '{family}';
+    src: url(data:{mime};base64,{b64}) format('{css_format}');
+    font-weight: {weight};
+    font-style: normal;
+    font-display: swap;
+}}""")
+    return "\n".join(blocks)
 
 # Список доступных метрик (название для UI + тип для pipeline)
 METRICS = [
@@ -18,7 +88,6 @@ METRICS = [
     ("Распределение по бакетам потерь",                  MetricType.LOSS_BUCKETS.value),
     ("Динамика чистых потерь за период",                 MetricType.DIRECT_LOSSES_DYNAMICS.value),
     ("Распределение прямых потерь по источникам риска",  MetricType.CONCENTRATION.value),
-    ("Декомпозиция непрямых потерь",                     MetricType.KPUR_VIOLATION.value),
 ]
 
 
@@ -29,14 +98,19 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Onest:wght@400;500;600;700&display=swap');
+st.markdown(
+    "<style>\n"
+    "@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Onest:wght@400;500;600;700&display=swap');\n"
+    + build_vk_font_faces_css() +
+    """
 
 *, *::before, *::after { box-sizing: border-box; }
 
+* {
+    font-family: 'VK Sans Text', 'Inter', Arial, sans-serif !important;
+}
+
 html, body, [class*="css"], .stApp {
-    font-family: 'Inter', sans-serif !important;
     background: #ffffff !important;
     color: #0d1b2a !important;
 }
@@ -66,12 +140,13 @@ div[class*="appview-container"] { background: #ffffff !important; }
 .o-nav-logo { display: flex; align-items: center; gap: 12px; }
 .o-nav-logo img { height: 32px; width: auto; }
 .o-nav-brand {
-    font-family: 'Onest', sans-serif;
+    font-family: 'VK Sans Display', 'Onest', Arial, sans-serif !important;
     font-size: 20px; font-weight: 700; color: #0d1b2a;
 }
 
 .o-hero { padding: 44px 0 32px; background: #ffffff; }
 .o-hero-title {
+    font-family: 'VK Sans Display', 'Inter', Arial, sans-serif !important;
     font-size: 34px; font-weight: 800; color: #0d1b2a;
     line-height: 1.2; letter-spacing: -0.8px; margin-bottom: 14px;
 }
@@ -82,7 +157,7 @@ div[class*="appview-container"] { background: #ffffff !important; }
 div[data-testid="stSelectbox"] label,
 div[data-testid="stTextArea"] label,
 div[data-testid="stFileUploader"] label {
-    font-family: 'Inter', sans-serif !important;
+    font-family: 'VK Sans Text', 'Inter', Arial, sans-serif !important;
     font-size: 11px !important; font-weight: 700 !important;
     color: #7a8fa8 !important; letter-spacing: 0.7px !important;
     text-transform: uppercase !important;
@@ -150,7 +225,7 @@ div[data-testid="stTextArea"] [data-baseweb="base-input"] {
 [data-testid="stFileUploader"] button::after {
     content: "Загрузить" !important; color: #ffffff !important;
     font-size: 13px !important; font-weight: 600 !important;
-    font-family: 'Inter', sans-serif !important;
+    font-family: 'VK Sans Text', 'Inter', Arial, sans-serif !important;
 }
 [data-testid="stFileUploader"] button > * { display: none !important; }
 [data-testid="stFileUploader"] button:hover { background: #3a6bd4 !important; }
@@ -166,7 +241,7 @@ div[data-testid="stButton"] > button {
     font-size: 14px !important; font-weight: 600 !important;
     padding: 12px 32px !important; margin-top: 8px !important;
     transition: all 0.15s ease !important;
-    font-family: 'Inter', sans-serif !important;
+    font-family: 'VK Sans Text', 'Inter', Arial, sans-serif !important;
 }
 div[data-testid="stButton"] > button:hover {
     background: #3a6bd4 !important; transform: translateY(-1px) !important;
@@ -180,7 +255,7 @@ div[data-testid="stButton"] > button:hover {
     padding: 28px 32px 32px;
     margin-top: 32px;
 }
-.res-title { font-size: 16px; font-weight: 700; color: #0d1b2a; margin-bottom: 4px; }
+.res-title { font-family: 'VK Sans Display', 'Inter', Arial, sans-serif !important; font-size: 16px; font-weight: 700; color: #0d1b2a; margin-bottom: 4px; }
 .res-sub {
     font-size: 12px; font-weight: 600; color: #7a8fa8;
     letter-spacing: 0.5px; margin-bottom: 8px;
@@ -206,7 +281,9 @@ div[data-testid="stButton"] > button:hover {
 
 div[data-testid="stAlert"] { border-radius: 8px !important; }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 
 def get_logo_html() -> str:

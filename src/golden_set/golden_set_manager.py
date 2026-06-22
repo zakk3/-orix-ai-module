@@ -4,7 +4,7 @@
 
 import json
 import os
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 # Папка с JSON-файлами эталонов — рядом с этим файлом
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
@@ -25,24 +25,53 @@ class GoldenSetManager:
     """Управляет базой эталонных примеров для few-shot learning."""
 
     def __init__(self) -> None:
-        # Кэш: не читаем файл при каждом запросе
-        self._cache: Dict[str, List[Dict[str, Any]]] = {}
+        self._cache = {}
 
-    def get_examples(self, metric_type: str, limit: int = 3) -> List[Dict[str, Any]]:
+    def get_examples(self, metric_type, limit = 3):
         """
         Вернуть список эталонных примеров для метрики.
         limit — сколько примеров передать в промпт (обычно 3).
+
+        Всегда возвращает ПЕРВЫЕ examples из файла (детерминированно) —
+        для metric2 это всегда m2_bank1_growth_vs_stable. Используется как
+        запасной вариант, если сценарий-специфичный пример недоступен.
         """
         if metric_type not in self._cache:
             self._cache[metric_type] = self._load(metric_type)
 
         return self._cache[metric_type][:limit]
 
-    def add_example(self, metric_type: str, example: Dict[str, Any]) -> None:
+    def get_examples_for_scenario(
+        self,
+        metric_type: str,
+        match_field: str,
+        match_value: Optional[str],
+        limit: int = 1,
+    ) -> List[Dict[str, Any]]:
         """
-        Добавить новый пример в Golden Set.
-        Используется для расширения набора на основе обратной связи.
+        Вернуть пример(ы), у которых example[match_field] == match_value —
+        то есть пример того же сценария/категории, что и текущий расчёт.
+
+        Так каждый сценарий («совпадают» / «незначительно отличаются» / ...)
+        показывает LLM СВОЙ собственный эталон стиля, а не один и тот же
+        эталон для всех случаев. Если совпадений нет (например, для
+        категории «совпадают» в metric2 эталона пока нет), используется
+        запасной вариант — первые examples из файла.
         """
+        if metric_type not in self._cache:
+            self._cache[metric_type] = self._load(metric_type)
+
+        pool = self._cache[metric_type]
+        if match_value is not None:
+            matching = [ex for ex in pool if ex.get(match_field) == match_value]
+            if matching:
+                return matching[:limit]
+
+        # Запасной вариант: нет эталона для этого сценария — берём первые
+        return pool[:limit]
+
+    def add_example(self, metric_type, example):
+        """Добавить новый пример в Golden Set."""
         examples = self._load(metric_type)
         examples.append(example)
 
@@ -51,16 +80,13 @@ class GoldenSetManager:
             json.dump({"metric": metric_type, "examples": examples},
                       f, ensure_ascii=False, indent=2)
 
-        # Сбрасываем кэш чтобы подтянуть новый пример
         self._cache.pop(metric_type, None)
 
-    def count(self, metric_type: str) -> int:
+    def count(self, metric_type):
         """Сколько примеров есть для данной метрики."""
         return len(self._load(metric_type))
 
-    # ── внутренние методы ──────────────────────────────────────────────────
-
-    def _load(self, metric_type: str) -> List[Dict[str, Any]]:
+    def _load(self, metric_type):
         """Читаем JSON-файл с эталонами."""
         path = self._get_path(metric_type)
         if not os.path.exists(path):
@@ -70,7 +96,7 @@ class GoldenSetManager:
         return data.get("examples", [])
 
     @staticmethod
-    def _get_path(metric_type: str) -> str:
+    def _get_path(metric_type):
         """Путь к JSON-файлу для данной метрики."""
         filename = METRIC_FILES.get(metric_type)
         if not filename:
