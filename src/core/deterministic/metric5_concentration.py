@@ -2,9 +2,12 @@ from typing import Dict, Any, List
 
 from src.models.output_models import MetricCalculations
 
+# Порог существенного отклонения по отдельному источнику (п.п.)
 THRESHOLD_SIGNIFICANT    = 10.0
+# Порог сценария «значительно отличается» по максимальному отклонению (п.п.)
 THRESHOLD_VERY_DIFFERENT = 25.0
 
+# Стандартная оговорка о различиях в профиле риска — включается во все сценарии
 _DISCLAIMER = (
     "Отличия в источниках потерь, возможно, свидетельствуют о различающемся "
     "профиле риска вашего банка и других банков в выбранной группе сравнения. "
@@ -12,6 +15,7 @@ _DISCLAIMER = (
     "и классификации потерь."
 )
 
+# Шаблон алерта: триггерится если «Недостатки процессов» ниже кластера на ≥ 10 п.п.
 _ALERT_TEMPLATE = (
     "Также стоит обратить внимание, что по источнику риска Недостатки процессов "
     "у вас зарегистрировано меньше всего потерь, что нетипично для других банков "
@@ -26,19 +30,24 @@ class Metric5Calculator:
     METRIC_TYPE = "concentration"
 
     def calculate(self, data: Dict[str, Any], period: str = "2025Q3") -> MetricCalculations:
+        """Вычисляет концентрацию потерь по источникам риска и возвращает MetricCalculations."""
         series = data.get("series", [])
         if not series:
             raise ValueError("series пустой")
 
+        # Проверяем наличие self/rest в каждой записи
         for entry in series:
             if entry.get("self") is None or entry.get("rest") is None:
                 raise ValueError(f"Отсутствует self/rest в записи '{entry.get('label')}'")
 
+        # Разности и абсолютные отклонения по каждому источнику
         diffs     = {e["label"]: e["self"] - e["rest"] for e in series}
         abs_diffs = {k: abs(v) for k, v in diffs.items()}
 
+        # Число источников с существенным отклонением (≥ 10 п.п.)
         n_significant = sum(1 for v in abs_diffs.values() if v >= THRESHOLD_SIGNIFICANT)
 
+        # Сортировка по убыванию доли: топ-2 у банка и у кластера
         sorted_bank    = sorted(series, key=lambda e: e["self"], reverse=True)
         sorted_cluster = sorted(series, key=lambda e: e["rest"], reverse=True)
 
@@ -48,16 +57,20 @@ class Metric5Calculator:
         top2_cluster_pct = round(sum(e["rest"] for e in sorted_cluster[:2]), 1)
         top2_match       = set(top2_bank) == set(top2_cluster)
 
+        # Источник с максимальным абсолютным отклонением
         max_diff_label  = max(abs_diffs, key=abs_diffs.get)
         max_diff_abs    = round(abs_diffs[max_diff_label], 1)
         max_diff_signed = round(diffs[max_diff_label], 1)
 
+        # Проверка триггера алерта по «Недостатки процессов»
         ned_diff             = diffs.get("Недостатки процессов", 0.0)
         has_nedostatki_alert = ned_diff <= -THRESHOLD_SIGNIFICANT
         nedostatki_diff_abs  = round(abs(ned_diff), 1) if has_nedostatki_alert else None
 
+        # Сценарная классификация
         scenario_label = self._classify_scenario(n_significant, max_diff_abs, top2_match)
 
+        # Готовые предложения для промпта
         opening_sentence    = self._build_opening(scenario_label, n_significant)
         top2_sentence       = self._build_top2(
             top2_bank, top2_bank_pct,
@@ -70,6 +83,7 @@ class Metric5Calculator:
             if has_nedostatki_alert else ""
         )
 
+        # Дополнительные поля для промпта и оценщика
         extra: Dict[str, Any] = {
             "scenario_label":       scenario_label,
             "n_significant":        n_significant,
@@ -104,6 +118,7 @@ class Metric5Calculator:
 
     @staticmethod
     def _classify_scenario(n_significant: int, max_diff_abs: float, top2_match: bool) -> str:
+        """Определяет сценарий по числу существенных отклонений, max-diff и совпадению топ-2."""
         if n_significant == 0:
             return "идентична"
         if n_significant == 1:
@@ -116,6 +131,7 @@ class Metric5Calculator:
 
     @staticmethod
     def _build_opening(scenario: str, n_significant: int) -> str:
+        """Вступительное предложение: сценарная фраза + счётчик источников с отклонением."""
         scenario_phrase = {
             "идентична":              "практически идентична средней структуре",
             "некоторые отличия":      "характеризуется некоторыми отличиями от средней картины",
@@ -148,6 +164,7 @@ class Metric5Calculator:
         top2_match: bool,
         max_diff_label: str, max_diff_abs: float, max_diff_signed: float,
     ) -> str:
+        """Предложение о топ-2 источниках: совпадение/несовпадение с кластером и max-diff."""
         bank_pct_int    = round(top2_bank_pct)
         cluster_pct_int = round(top2_cluster_pct)
 

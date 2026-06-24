@@ -42,7 +42,6 @@ class LLMService:
             "modelUri": f"gpt://{config.YANDEX_FOLDER_ID}/{config.LLM_MODEL}",
             "completionOptions": {
                 "stream": False,
-                # temperature=0.4 — вариативность синонимов без искажения меток бакетов
                 "temperature": 0.4,
                 "maxTokens": config.LLM_MAX_TOKENS,
             },

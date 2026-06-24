@@ -12,11 +12,7 @@ from src.core.validation.input_validator import InputValidator
 LOGO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "orix_logo.png")
 FONTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "fonts")
 
-# Шрифты VK Sans Display / VK Sans Text — встраиваются как base64 data URI,
-# если соответствующий файл найден в FONTS_DIR. Поддерживаются форматы
-# .woff2 / .woff / .ttf / .otf — формат определяется по расширению файла.
-# Если файла нет — @font-face для этого начертания просто не генерируется,
-# и браузер использует fallback-цепочку (Inter → Arial) из font-family.
+# Шрифты VK Sans Display и VK Sans Text (используются в UI)
 VK_FONT_FILES = {
     "VK Sans Display": [
         # Реальные файлы, которые сейчас есть (.ttf):
@@ -279,6 +275,26 @@ div[data-testid="stButton"] > button:hover {
 
 .val-fail { color: #c0392b; font-size: 13px; font-weight: 600; margin-top: 16px; }
 
+.score-row {
+    display: flex; align-items: center; gap: 12px;
+    margin-top: 20px; padding-top: 18px;
+    border-top: 1px solid #e8eef6;
+}
+.score-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 13px; border-radius: 20px;
+    font-size: 13px; font-weight: 700;
+}
+.score-pill.pass { background: #eaf6ef; color: #1e8449; }
+.score-pill.fail { background: #fdecea; color: #c0392b; }
+.score-val { font-size: 12px; color: #7a8fa8; }
+.val-errors { margin-top: 10px; }
+.val-error-item {
+    font-size: 12px; color: #c0392b;
+    padding: 3px 0; border-left: 3px solid #e74c3c;
+    padding-left: 8px; margin-bottom: 4px;
+}
+
 div[data-testid="stAlert"] { border-radius: 8px !important; }
 </style>
 """,
@@ -338,7 +354,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.markdown('<hr class="o-divider">', unsafe_allow_html=True)
 
 # Форма ввода: выбор метрики и загрузка JSON
 metric_choice = st.selectbox(
@@ -442,6 +457,18 @@ with st.spinner("Выполняется анализ..."):
 metric_label = metric_choice[0]
 verdict_paragraphs = build_verdict_html(response.verdict)
 
+score_pct    = int(round(response.quality_score * 100))
+passed_class = "pass" if response.validation_passed else "fail"
+passed_label = "Проверка пройдена" if response.validation_passed else "Проверка не пройдена"
+
+errors_html = ""
+if response.validation_errors:
+    items = "".join(
+        f'<div class="val-error-item">{e}</div>'
+        for e in response.validation_errors
+    )
+    errors_html = f'<div class="val-errors">{items}</div>'
+
 card_html = f"""
 <div class="res-card">
     <div class="res-title">{metric_label}</div>
@@ -452,6 +479,11 @@ card_html = f"""
             {verdict_paragraphs}
         </div>
     </div>
+    <div class="score-row">
+        <span class="score-pill {passed_class}">{passed_label}</span>
+        <span class="score-val">Качество вывода: {score_pct}%</span>
+    </div>
+    {errors_html}
 </div>
 """
 st.markdown(card_html, unsafe_allow_html=True)

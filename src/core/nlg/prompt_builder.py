@@ -721,7 +721,7 @@ class PromptBuilder:
         )
         return system, "\n\n".join(user_parts)
 
-    # ── Метрика 5 ──────────────────────────────────────────────────────────
+    # Метрика 5 
 
     CONCENTRATION_STRUCTURE = (
         "СТРУКТУРА ДЛЯ ТЕКУЩЕГО СЦЕНАРИЯ:\n\n"

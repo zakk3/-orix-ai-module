@@ -9,7 +9,7 @@ from typing import List, Dict, Any, Optional
 # Папка с JSON-файлами эталонов — рядом с этим файлом
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 
-# Маппинг: код метрики → имя JSON-файла
+# Маппинг: код метрики - имя JSON-файла
 METRIC_FILES = {
     "loss_share":              "metric1.json",
     "direct_losses_dynamics":  "metric2.json",
@@ -31,10 +31,6 @@ class GoldenSetManager:
         """
         Вернуть список эталонных примеров для метрики.
         limit — сколько примеров передать в промпт (обычно 3).
-
-        Всегда возвращает ПЕРВЫЕ examples из файла (детерминированно) —
-        для metric2 это всегда m2_bank1_growth_vs_stable. Используется как
-        запасной вариант, если сценарий-специфичный пример недоступен.
         """
         if metric_type not in self._cache:
             self._cache[metric_type] = self._load(metric_type)
@@ -53,10 +49,7 @@ class GoldenSetManager:
         то есть пример того же сценария/категории, что и текущий расчёт.
 
         Так каждый сценарий («совпадают» / «незначительно отличаются» / ...)
-        показывает LLM СВОЙ собственный эталон стиля, а не один и тот же
-        эталон для всех случаев. Если совпадений нет (например, для
-        категории «совпадают» в metric2 эталона пока нет), используется
-        запасной вариант — первые examples из файла.
+        показывает LLM СВОЙ собственный эталон стиля
         """
         if metric_type not in self._cache:
             self._cache[metric_type] = self._load(metric_type)

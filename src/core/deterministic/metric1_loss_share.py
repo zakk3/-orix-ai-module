@@ -135,7 +135,7 @@ class Metric1Calculator:
             extra=extra,
         )
 
-    # ── Классификация ─────────────────────────────────────────────────────────
+    # Классификация 
 
     @staticmethod
     def _deviation_level(val: float) -> str:
@@ -168,7 +168,7 @@ class Metric1Calculator:
             return DeviationThreshold.MODERATE.value
         return DeviationThreshold.SIGNIFICANT.value
 
-    # ── Строители готовых предложений ─────────────────────────────────────────
+    #  Строители готовых предложений 
 
     @staticmethod
     def _period_display(period: str) -> str:
@@ -182,15 +182,6 @@ class Metric1Calculator:
         period_display: str, bank_fmt: str, avg_fmt: str,
         diff_fmt: str, magnitude_label: str, diff_abs: float
     ) -> str:
-        # ВАЖНО: дата («По итогам Q3 2025») сюда НЕ включается — она вставляется
-        # отдельно, ДОСЛОВНО, перед этим предложением. Иначе LLM воспринимает
-        # дату как часть текста для перефразирования и заменяет «Q3 2025»
-        # на «третий квартал две тысячи двадцать пятого года».
-        #
-        # НЕСКОЛЬКО вариантов шаблона — выбор случайный при каждом вызове.
-        # Если бы шаблон был один, при повторных запросах с одними и теми же
-        # входными данными LLM видел бы один и тот же текст для перефразирования
-        # и мог бы просто копировать его вместо реальной синонимической замены.
         if diff_abs < THRESHOLD_INSIGNIFICANT:
             variants = [
                 f"показатель чистых потерь вашего банка относительно "
@@ -308,7 +299,7 @@ class Metric1Calculator:
             "сопоставимый со средним по рынку."
         )
 
-    # ── Расчёты ───────────────────────────────────────────────────────────────
+    # Расчёты
 
     @staticmethod
     def _detect_outliers(banks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -337,7 +328,7 @@ class Metric1Calculator:
         clean = [v for v in values if round(v, 6) not in outlier_vals]
         return float(statistics.mean(clean)) if clean else None
 
-    # ── Поиск и агрегация ─────────────────────────────────────────────────────
+    # Поиск и агрегация
 
     @staticmethod
     def _find_my_bank(series: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -386,7 +377,7 @@ class Metric1Calculator:
                 return i, len(ranked)
         return None, len(ranked)
 
-    # ── Форматирование ────────────────────────────────────────────────────────
+    # Форматирование    
 
     @staticmethod
     def _fmt_ru(val: float, decimals: int = 2) -> str:

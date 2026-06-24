@@ -45,7 +45,7 @@ class Metric3Calculator:
         self_pct = [b["self"]  for b in buckets]
         rest_pct = [b["rest"]  for b in buckets]
 
-        # ── 1. Отклонения по каждому бакету ──────────────────────────────────
+        # 1. Отклонения по каждому бакету 
 
         # Знаковое и абсолютное отклонение для каждого бакета
         diffs_signed = [s - r for s, r in zip(self_pct, rest_pct)]
@@ -55,7 +55,7 @@ class Metric3Calculator:
         # Именно эту цифру Орикс публикует в вердикте: «сумма отклонений составляет X п.п.»
         total_deviation = round(sum(diffs_abs), 1)
 
-        # ── 2. Бакет с максимальным отклонением ──────────────────────────────
+        # 2. Бакет с максимальным отклонением 
 
         max_diff_idx    = diffs_abs.index(max(diffs_abs))
         max_diff_bucket = labels[max_diff_idx]
@@ -65,7 +65,7 @@ class Metric3Calculator:
         # Флаг: есть ли хотя бы один бакет с отклонением >= 10пп
         any_diff_over_10 = any(d >= THRESHOLD_SINGLE_SIGNIFICANT for d in diffs_abs)
 
-        # ── 3. Бакеты с максимальной и минимальной долей (банк и рынок) ──────
+        # 3. Бакеты с максимальной и минимальной долей (банк и рынок) 
 
         # Бакет с наибольшей долей в портфеле банка
         max_bank_idx   = self_pct.index(max(self_pct))
@@ -94,14 +94,14 @@ class Metric3Calculator:
         max_buckets_match = (max_bank_label == max_rest_label)
         min_buckets_match = (min_bank_label == min_rest_label)
 
-        # ── 4. Классификация сценария ─────────────────────────────────────────
+        # 4. Классификация сценария 
 
         scenario_label = self._classify_scenario(
             total_deviation, any_diff_over_10,
             max_buckets_match, min_buckets_match
         )
 
-        # ── 5. Готовые предложения для LLM (по сценариям) ────────────────────
+        # 5. Готовые предложения для LLM (по сценариям) 
 
         # Предложение о совпадении бакетов max/min (используется в сценариях
         # «незначительные» и «расхождения» когда max и min совпадают)
@@ -154,7 +154,7 @@ class Metric3Calculator:
                 f"{bucket_label_clean} тыс. руб. ({max_diff_abs} п.п.)."
             )
 
-        # ── 6. Дополнительные поля для сценария «кардинально отличается» ─────
+        # 6. Дополнительные поля для сценария «кардинально отличается» 
 
         # Наибольший бакет, в котором у банка есть ненулевые потери
         bank_max_effective_label = self._find_max_effective_bucket(labels, self_pct)
@@ -187,7 +187,7 @@ class Metric3Calculator:
             concentration_sentence = ""
             min_mismatch_sentence = ""
 
-        # ── 7. Собираем extra ─────────────────────────────────────────────────
+        #7. Собираем extra 
 
         extra: Dict[str, Any] = {
             # Сценарий
@@ -257,7 +257,7 @@ class Metric3Calculator:
             extra=extra,
         )
 
-    # ── Извлечение данных ─────────────────────────────────────────────────────
+    # Извлечение данных 
 
     @staticmethod
     def _extract_buckets(series: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -284,7 +284,7 @@ class Metric3Calculator:
             })
         return result
 
-    # ── Классификация сценария ────────────────────────────────────────────────
+    # Классификация сценария 
 
     @staticmethod
     def _classify_scenario(
@@ -309,7 +309,7 @@ class Metric3Calculator:
         #   (Банки 1, 3, 4: total=31–33пп, max_single=15–17пп → расхождения)
         return "расхождения"
 
-    # ── Вспомогательные методы ────────────────────────────────────────────────
+    # Вспомогательные методы
 
     @staticmethod
     def _find_max_effective_bucket(
